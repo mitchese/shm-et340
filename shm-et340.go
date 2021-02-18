@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/dmichael/go-multicast/multicast"
-	"github.com/godbus/dbus"
 	"github.com/godbus/dbus/introspect"
+	"github.com/godbus/dbus/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,7 +17,7 @@ const (
 	address = "239.12.255.254:9522"
 )
 
-var conn, err = dbus.ConnectSystemBus()
+var conn, err = dbus.SystemBus()
 
 type singlePhase struct {
 	voltage float32 // Volts: 230,0
