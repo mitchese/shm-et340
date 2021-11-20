@@ -246,6 +246,17 @@ func msgHandler(src *net.UDPAddr, n int, b []byte) {
 	// 0-28: SMA/SUSyID/SN/Uptime
 	log.Debug("----------------------")
 	log.Debug("Received datagram from meter")
+
+	if binary.BigEndian.Uint32(b[20:24]) == 0xffffffff {
+		log.Debug("Implausible serial, rejecting")
+		return
+	}
+	if n < 500 {
+		log.Debug("Received packet is probably too small. Size: ", n)
+		log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
+		return
+	}
+
 	log.Debug("Uid: ", binary.BigEndian.Uint32(b[4:8]))
 	log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
 
