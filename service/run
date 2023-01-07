@@ -5,20 +5,17 @@ ip_of_shm2_0="192.168.188.58"
 # Set a flag variable to track whether the service has been started
 service_started=false
 
-# Wait for 25 seconds or else the VRM Portal will be in trouble. It is to ensure that shm-et340 starts after the mqtt broker.
+# Wait for 25 seconds
 sleep 25
 
 check_status() {
-  # Check the status of the "shm-et340" process
   pid=$(pidof /data/drivers/shm-et340/shm-et340)
   if [ -n "$pid" ]; then
       wait "$pid"
       exit_status=$?
       if [ "$exit_status" -ne 0 ]; then
-          # Restart the "shm-et340" process if it has crashed or exited with an error if smartmeter is online
-          if ping -c 3 -W 5 "$ip_of_shm2_0" > /dev/null; then
+          # Restart the "shm-et340" process if it has crashed or exited with an error.
           setsid /data/drivers/shm-et340/shm-et340 > /dev/null 2>/dev/null &
-      fi
       fi
       # Set the flag variable to true to indicate that the service has been started
       service_started=true
@@ -48,15 +45,14 @@ stop_service() {
 
 # Enter an infinite loop
 while true; do
-    check_status
-    start_service
-  # Check if the smartmeter's IP address is reachable
-  if ping -c 3 -W 5 "$ip_of_shm2_0" > /dev/null; then
-    echo Smartmeter IP $ip_of_shm2_0 reachable.
+ if ping -c 3 -W 5 "$ip_of_shm2_0" > /dev/null; then # Only check process if smartmeter is online
+     echo Smartmeter IP $ip_of_shm2_0 reachable.
+     check_status # Check if process is running
   else
     echo Smartmeter IP $ip_of_shm2_0 offline. Stopping shm-et340 service.
     stop_service
   fi
+    start_service
   # Wait for 15 seconds before checking the status again
   sleep 15
 done
