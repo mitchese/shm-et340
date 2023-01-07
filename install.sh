@@ -1,4 +1,5 @@
 #!/bin/sh
+# Note: This installation will survive a firmware update.
 mkdir /data/drivers/shm-et340
 mkdir /data/drivers/shm-et340/service
 cd /data/drivers/shm-et340
