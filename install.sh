@@ -11,5 +11,6 @@ chmod +x ./run
 ln -s  /data/drivers/shm-et340/service /service/shm-et340
 echo >> /data/rc.local
 echo "ln -s /data/drivers/shm-et340/service /service/shm-et340" >> /data/rc.local
+chmod +x /data/rc.local
 echo Installation finished. Please edit the file /data/drivers/shm-et340/service/run and change the IP adress of your smartmeter.
 echo Please ensure (in your routers DHCP-service) that it is always getting the same IP adress.
