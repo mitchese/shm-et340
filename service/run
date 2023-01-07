@@ -49,7 +49,7 @@ while true; do
      echo Smartmeter IP $ip_of_shm2_0 reachable.
      check_status # Check if process is running
   else
-    echo Smartmeter IP $ip_of_shm2_0 offline. Stopping shm-et340 service.
+    echo Smartmeter IP $ip_of_shm2_0 offline. Restarting shm-et340 service.
     stop_service
   fi
     start_service
