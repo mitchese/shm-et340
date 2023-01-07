@@ -5,7 +5,7 @@ ip_of_shm2_0="192.168.188.58"
 # Set a flag variable to track whether the service has been started
 service_started=false
 
-# Wait for 25 seconds
+# Wait for 25 seconds or else the VRM Portal will stop working. The shm-et340 has to be started after the mqtt broker. 
 sleep 25
 
 check_status() {
