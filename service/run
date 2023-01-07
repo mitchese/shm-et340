@@ -1,6 +1,15 @@
 #!/bin/sh
 
-ip_of_shm2_0="192.168.188.58"
+ip_of_shm2_0="0.0.0.0"
+
+if [ "$ip_of_shm2_0" = "0.0.0.0" ]; then
+  echo "ERROR, please correct the IP-adress to your smartmeter-ip."
+  echo "Example: ip_of_shm2_0="192.168.178.44"
+  echo "Please dont forget to set the IP-address to a static address in your router."
+  echo "If the IP changes, the script will fail and restart shm-et340 every 15 seconds."
+  exit 1
+fi
+
 
 # Set a flag variable to track whether the service has been started
 service_started=false
