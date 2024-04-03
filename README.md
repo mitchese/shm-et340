@@ -81,6 +81,20 @@ For more details, see the thread on the Victron Energy community forums here:
 
 https://community.victronenergy.com/questions/49293/alternative-to-et340-mqtt-sma-home-manager.html
 
+# Multiple SMA meters
+
+If you are using multiple SMA meteres (example, a Sunny Home Manager and a Energy Meter 2)
+in the same network, you will need to provide the serial number of which meter you want this
+to follow.
+
+Example:
+```
+SMASUSYID=1234567890 ./shm-et340
+```
+
+This is the meters' serial number, which can be found in the web UI of your inverter under
+Device Configuration -> Meter on Speedwire -> Serial
+
 # License
 
 This program is free software: you can redistribute it and/or modify
