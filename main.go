@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/dmichael/go-multicast/multicast"
@@ -257,6 +258,11 @@ func main() {
 
 func msgHandler(src *net.UDPAddr, n int, b []byte) {
 	// This function will be called with every datagram sent by the SMA meter
+	smasusyIDStr := os.Getenv("SMASUSYID")
+	smasusyID, err := strconv.ParseUint(smasusyIDStr, 10, 32)
+	if err != nil {
+		smasusyID = 0
+	}
 
 	// 0-28: SMA/SUSyID/SN/Uptime
 	log.Debug("----------------------")
@@ -273,6 +279,12 @@ func msgHandler(src *net.UDPAddr, n int, b []byte) {
 		log.Debug("Implausible serial, rejecting")
 		return
 	}
+
+	if smasusyID > 0 && uint32(smasusyID) != binary.BigEndian.Uint32(b[20:24]) {
+		log.Debugf("Oops, I was told to only listen for updates from %d, but this update is from %d", smasusyID, binary.BigEndian.Uint32(b[20:24]))
+		return
+	}
+
 	if n < 500 {
 		log.Debug("Received packet is probably too small. Size: ", n)
 		log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
