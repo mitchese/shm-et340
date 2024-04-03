@@ -18,6 +18,14 @@ for your verification. It should be relatively safe to test with.
 If the `sma_home_manager_printer` works and shows consistent/reliable result, then you can
 install this in the same way.
 
+## Automatic Setup
+
+[christian1980nrw](https://github.com/christian1980nrw) has created a nice and easy install script, just
+run the install.sh which should do everything below. This is not immutable, so only run it once, if it fails
+then follow the manual setup below
+
+## Manual Setup
+
 *You don't need to compile the source code* if you don't want to (see compiling below). Head over
 to the [releases](https://github.com/mitchese/shm-et340/releases) and download the latest version.
 then:
