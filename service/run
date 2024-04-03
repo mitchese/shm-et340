@@ -1,0 +1,61 @@
+#!/bin/sh
+
+ip_of_shm2_0="0.0.0.0"
+
+if [ $ip_of_shm2_0 = "0.0.0.0" ]; then
+  echo "ERROR, please correct the IP-adress to your smartmeter-ip."
+  echo 'Example: ip_of_shm2_0="192.168.178.44"'
+  echo "Please dont forget to set the IP-address to a static address in your router."
+  echo "If the IP changes, the script will fail and restart shm-et340 every 15 seconds."
+  exit 1
+fi
+
+# Set a flag variable to track whether the service has been started
+service_started=false
+# Wait for 25 seconds or else the VRM Portal will stop working. The shm-et340 has to be started after the mqtt broker. 
+sleep 25
+check_status() {
+  pid=$(pidof /data/drivers/shm-et340/shm-et340)
+  if [ -n "$pid" ]; then
+      wait "$pid"
+      exit_status=$?
+      if [ "$exit_status" -ne 0 ]; then
+          # Restart the "shm-et340" process if it has crashed or exited with an error.
+          setsid /data/drivers/shm-et340/shm-et340 > /dev/null 2>/dev/null &
+      fi
+      # Set the flag variable to true to indicate that the service has been started
+      service_started=true
+  else
+      # Set the flag variable to false to indicate that the service has been stopped
+      service_started=false
+  fi
+}
+start_service() {
+  # Start the "shm-et340" process if it is not already running and the service has not been started
+  if ! pidof /data/drivers/shm-et340/shm-et340 > /dev/null && ! $service_started; then
+      setsid /data/drivers/shm-et340/shm-et340 > /dev/null 2>/dev/null &
+      # Set the flag variable to true to indicate that the service has been started
+      service_started=true
+  fi
+}
+stop_service() {
+  # Kill the "shm-et340" process if it is running
+  if pidof /data/drivers/shm-et340/shm-et340 > /dev/null; then
+      kill $(pidof /data/drivers/shm-et340/shm-et340)
+      # Set the flag variable to false to indicate that the service has been stopped
+      service_started=false
+  fi
+}
+# Enter an infinite loop
+while true; do
+ if ping -c 3 -W 5 $ip_of_shm2_0 > /dev/null; then # Only check process if smartmeter is online
+     echo Smartmeter IP $ip_of_shm2_0 reachable.
+     check_status # Check if process is running
+  else
+    echo Smartmeter IP $ip_of_shm2_0 offline. Restarting shm-et340 service.
+    stop_service
+  fi
+    start_service
+  # Wait for 15 seconds before checking the status again
+  sleep 15
+done
