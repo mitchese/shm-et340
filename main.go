@@ -178,7 +178,7 @@ func init() {
 // HandleMessage processes incoming multicast messages
 func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	// Check protocol ID
-	if 24681 != binary.BigEndian.Uint16(b[16:18]) {
+	if binary.BigEndian.Uint16(b[16:18]) != 24681 {
 		log.Debug("The protocol ID didn't match 0x6069, it's not a meter update. ProtocolID: ", binary.BigEndian.Uint16(b[16:18]))
 		return
 	}
@@ -217,13 +217,19 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	log.Info(fmt.Sprintf("Meter update received: %.2f kWh bought and %.2f kWh sold, %.1f W currently flowing",
 		bezugtot, einsptot, powertot))
 
-	a.UpdateVariant(float64(powertot), "W", "/Ac/Power")
-	a.UpdateVariant(float64(einsptot), "kWh", "/Ac/Energy/Reverse")
-	a.UpdateVariant(float64(bezugtot), "kWh", "/Ac/Energy/Forward")
-
 	L1 := decodePhaseChunk(b[164:308])
 	L2 := decodePhaseChunk(b[308:452])
 	L3 := decodePhaseChunk(b[452:596])
+
+	// Calculate and update total values
+	totalCurrent := L1.a + L2.a + L3.a
+	totalVoltage := (L1.voltage + L2.voltage + L3.voltage) / 3.0
+	a.UpdateVariant(float64(totalCurrent), "A", "/Ac/Current")
+	a.UpdateVariant(float64(totalVoltage), "V", "/Ac/Voltage")
+
+	a.UpdateVariant(float64(powertot), "W", "/Ac/Power")
+	a.UpdateVariant(float64(einsptot), "kWh", "/Ac/Energy/Reverse")
+	a.UpdateVariant(float64(bezugtot), "kWh", "/Ac/Energy/Forward")
 
 	log.Debug("+-----+-------------+---------------+---------------+")
 	log.Debug("|value|   L1 \t|     L2  \t|   L3  \t|")
@@ -239,22 +245,23 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	a.UpdateVariant(float64(L1.power), "W", "/Ac/L1/Power")
 	a.UpdateVariant(float64(L1.voltage), "V", "/Ac/L1/Voltage")
 	a.UpdateVariant(float64(L1.a), "A", "/Ac/L1/Current")
-	a.UpdateVariant(L1.forward, "kWh", "/Ac/L1/Energy/Forward")
-	a.UpdateVariant(L1.reverse, "kWh", "/Ac/L1/Energy/Reverse")
+	a.UpdateVariant(float64(L1.forward), "kWh", "/Ac/L1/Energy/Forward")
+	a.UpdateVariant(float64(L1.reverse), "kWh", "/Ac/L1/Energy/Reverse")
 
 	// Update L2 values
 	a.UpdateVariant(float64(L2.power), "W", "/Ac/L2/Power")
 	a.UpdateVariant(float64(L2.voltage), "V", "/Ac/L2/Voltage")
 	a.UpdateVariant(float64(L2.a), "A", "/Ac/L2/Current")
-	a.UpdateVariant(L2.forward, "kWh", "/Ac/L2/Energy/Forward")
-	a.UpdateVariant(L2.reverse, "kWh", "/Ac/L2/Energy/Reverse")
+	a.UpdateVariant(float64(L2.forward), "kWh", "/Ac/L2/Energy/Forward")
+	a.UpdateVariant(float64(L2.reverse), "kWh", "/Ac/L2/Energy/Reverse")
 
 	// Update L3 values
 	a.UpdateVariant(float64(L3.power), "W", "/Ac/L3/Power")
 	a.UpdateVariant(float64(L3.voltage), "V", "/Ac/L3/Voltage")
 	a.UpdateVariant(float64(L3.a), "A", "/Ac/L3/Current")
-	a.UpdateVariant(L3.forward, "kWh", "/Ac/L3/Energy/Forward")
-	a.UpdateVariant(L3.reverse, "kWh", "/Ac/L3/Energy/Reverse")
+	a.UpdateVariant(float64(L3.forward), "kWh", "/Ac/L3/Energy/Forward")
+	a.UpdateVariant(float64(L3.reverse), "kWh", "/Ac/L3/Energy/Reverse")
+
 }
 
 // Run starts the application
@@ -326,7 +333,9 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		log.Info("Received shutdown signal, cleaning up...")
 		app.Shutdown()
+		os.Exit(0)
 	}()
 
 	// Run the application
@@ -383,8 +392,8 @@ func (a *App) RegisterDBusPaths() error {
 		"/Mgmt/Connection",
 		"/Mgmt/ProcessName",
 		"/Mgmt/ProcessVersion",
-		"/Position",
-		"/ProductId",
+		//"/Position",
+		//"/ProductId",
 		"/ProductName",
 		"/Serial",
 	}
@@ -405,6 +414,11 @@ func (a *App) RegisterDBusPaths() error {
 		"/Ac/L1/Energy/Reverse",
 		"/Ac/L2/Energy/Reverse",
 		"/Ac/L3/Energy/Reverse",
+		"/Ac/Current",
+		"/Ac/Voltage",
+		"/Ac/Power",
+		"/Ac/Energy/Forward",
+		"/Ac/Energy/Reverse",
 	}
 
 	for _, s := range basicPaths {
@@ -455,11 +469,11 @@ func (a *App) InitializeValues() {
 	a.values[0]["/Mgmt/ProcessVersion"] = dbus.MakeVariant("1.8.0")
 	a.values[1]["/Mgmt/ProcessVersion"] = dbus.MakeVariant("1.8.0")
 
-	a.values[0]["/Position"] = dbus.MakeVariantWithSignature(0, dbus.SignatureOf(123))
-	a.values[1]["/Position"] = dbus.MakeVariant("0")
-
-	a.values[0]["/ProductId"] = dbus.MakeVariant(45058)
-	a.values[1]["/ProductId"] = dbus.MakeVariant("45058")
+	// these used to be in the old demo, but have been removed
+	//a.values[0]["/Position"] = dbus.MakeVariantWithSignature(0, dbus.SignatureOf(123))
+	///a.values[1]["/Position"] = dbus.MakeVariant("0")
+	//a.values[0]["/ProductId"] = dbus.MakeVariant(45058)
+	//a.values[1]["/ProductId"] = dbus.MakeVariant("45058")
 
 	a.values[0]["/ProductName"] = dbus.MakeVariant("Grid meter")
 	a.values[1]["/ProductName"] = dbus.MakeVariant("Grid meter")
@@ -468,12 +482,12 @@ func (a *App) InitializeValues() {
 	a.values[1]["/Serial"] = dbus.MakeVariant("BP98305081235")
 
 	// Initialize power values
-	a.values[0]["/Ac/L1/Power"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L1/Power"] = dbus.MakeVariant("0 W")
-	a.values[0]["/Ac/L2/Power"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L2/Power"] = dbus.MakeVariant("0 W")
-	a.values[0]["/Ac/L3/Power"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L3/Power"] = dbus.MakeVariant("0 W")
+	a.values[0]["/Ac/L1/Power"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L1/Power"] = dbus.MakeVariant("1 W")
+	a.values[0]["/Ac/L2/Power"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L2/Power"] = dbus.MakeVariant("1 W")
+	a.values[0]["/Ac/L3/Power"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L3/Power"] = dbus.MakeVariant("1 W")
 
 	// Initialize voltage values
 	a.values[0]["/Ac/L1/Voltage"] = dbus.MakeVariant(230)
@@ -484,12 +498,12 @@ func (a *App) InitializeValues() {
 	a.values[1]["/Ac/L3/Voltage"] = dbus.MakeVariant("230 V")
 
 	// Initialize current values
-	a.values[0]["/Ac/L1/Current"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L1/Current"] = dbus.MakeVariant("0 A")
-	a.values[0]["/Ac/L2/Current"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L2/Current"] = dbus.MakeVariant("0 A")
-	a.values[0]["/Ac/L3/Current"] = dbus.MakeVariant(0.0)
-	a.values[1]["/Ac/L3/Current"] = dbus.MakeVariant("0 A")
+	a.values[0]["/Ac/L1/Current"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L1/Current"] = dbus.MakeVariant("1 A")
+	a.values[0]["/Ac/L2/Current"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L2/Current"] = dbus.MakeVariant("1 A")
+	a.values[0]["/Ac/L3/Current"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/L3/Current"] = dbus.MakeVariant("1 A")
 
 	// Initialize energy values
 	a.values[0]["/Ac/L1/Energy/Forward"] = dbus.MakeVariant(0.0)
@@ -505,17 +519,45 @@ func (a *App) InitializeValues() {
 	a.values[1]["/Ac/L2/Energy/Reverse"] = dbus.MakeVariant("0 kWh")
 	a.values[0]["/Ac/L3/Energy/Reverse"] = dbus.MakeVariant(0.0)
 	a.values[1]["/Ac/L3/Energy/Reverse"] = dbus.MakeVariant("0 kWh")
+
+	// Initialize total values
+	a.values[0]["/Ac/Current"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/Current"] = dbus.MakeVariant("1 A")
+	a.values[0]["/Ac/Voltage"] = dbus.MakeVariant(230)
+	a.values[1]["/Ac/Voltage"] = dbus.MakeVariant("230 V")
+	a.values[0]["/Ac/Power"] = dbus.MakeVariant(1.0)
+	a.values[1]["/Ac/Power"] = dbus.MakeVariant("1 W")
+	a.values[0]["/Ac/Energy/Forward"] = dbus.MakeVariant(0.0)
+	a.values[1]["/Ac/Energy/Forward"] = dbus.MakeVariant("0 kWh")
+	a.values[0]["/Ac/Energy/Reverse"] = dbus.MakeVariant(0.0)
+	a.values[1]["/Ac/Energy/Reverse"] = dbus.MakeVariant("0 kWh")
 }
 
 // UpdateVariant updates a DBus value and emits the change
+
 func (a *App) UpdateVariant(value float64, unit string, path string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	emit := make(map[string]dbus.Variant)
-	emit["Text"] = dbus.MakeVariant(fmt.Sprintf("%.2f", value) + unit)
-	emit["Value"] = dbus.MakeVariant(float64(value))
-	a.values[0][objectpath(path)] = emit["Value"]
-	a.values[1][objectpath(path)] = emit["Text"]
-	a.dbusConn.Emit(dbus.ObjectPath(path), "com.victronenergy.BusItem.PropertiesChanged", emit)
+	// 1. Create the inner dictionary for properties ("Value", "Text")
+	// The type is map[string]dbus.Variant
+	properties := make(map[string]dbus.Variant)
+	// Note: The desired output rounds to a whole number, so I'm using "%.0f"
+	properties["Text"] = dbus.MakeVariant(fmt.Sprintf("%.0f", value) + unit)
+	properties["Value"] = dbus.MakeVariant(value)
+
+	// Update your internal state if needed (this part is from your original code)
+	// You might want to update this logic to better suit your new structure
+	// For example, you might store the `properties` map directly.
+	a.values[0][objectpath(path)] = properties["Value"]
+	a.values[1][objectpath(path)] = properties["Text"]
+
+	// 2. Create the outer dictionary that maps the path to its properties
+	// The type is map[string]map[string]dbus.Variant
+	items := make(map[string]map[string]dbus.Variant)
+	items[path] = properties
+
+	// 3. Emit the 'items' map directly. The D-Bus library will correctly
+	// serialize this as an array of dictionary entries.
+	a.dbusConn.Emit("/", "com.victronenergy.BusItem.ItemsChanged", items)
 }
