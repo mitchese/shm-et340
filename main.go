@@ -301,7 +301,7 @@ func main() {
 	// Create configuration
 	config := Config{
 		MulticastAddress: "239.12.255.254:9522",
-		DBusName:         "com.victronenergy.grid.cgwacs_ttyUSB0_di30_mb1",
+		DBusName:         "com.victronenergy.grid.cgwacs_ttyUSB0_di30_mb2",
 		LogLevel:         lvl,
 	}
 
