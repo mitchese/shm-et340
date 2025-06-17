@@ -64,7 +64,7 @@ rc.local before trying to start the script ... not great but it works.
 
 ```
 root@beaglebone:~# cat /data/rc.local
-!#/bin/bash
+#!/bin/bash
 
 sleep 15
 setsid /data/home/root/shm-et340 > /dev/null 2>/dev/null &
