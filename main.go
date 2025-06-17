@@ -175,93 +175,101 @@ func init() {
 	log.SetLevel(ll)
 }
 
-// HandleMessage processes incoming multicast messages
 func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
-	// Check protocol ID
-	if binary.BigEndian.Uint16(b[16:18]) != 24681 {
-		log.Debug("The protocol ID didn't match 0x6069, it's not a meter update. ProtocolID: ", binary.BigEndian.Uint16(b[16:18]))
-		return
-	}
 
-	if binary.BigEndian.Uint32(b[20:24]) == 0xffffffff {
-		log.Debug("Implausible serial, rejecting")
-		return
-	}
-
-	if a.config.SMASusyID > 0 && uint32(a.config.SMASusyID) != binary.BigEndian.Uint32(b[20:24]) {
-		log.Debugf("Oops, I was told to only listen for updates from %d, but this update is from %d",
-			a.config.SMASusyID, binary.BigEndian.Uint32(b[20:24]))
-		return
-	}
-
-	if n < 500 {
+	if n < 596 {
 		log.Debug("Received packet is probably too small. Size: ", n)
 		log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
 		return
 	}
 
-	log.Debug("Uid: ", binary.BigEndian.Uint32(b[4:8]))
-	log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
+	if a.config.SMASusyID > 0 && uint32(a.config.SMASusyID) != binary.BigEndian.Uint32(b[20:24]) {
+		log.Debugf("Oops, I was told to only listen for updates from %d, but this update is from %d", a.config.SMASusyID, binary.BigEndian.Uint32(b[20:24]))
+		return
+	}
+	// 0-28: SMA/SUSyID/SN/Uptime
+	log.Debug("----------------------")
+	log.Debug("Received datagram from meter")
 
-	// Calculate total power (buy - sell) in watts
+	// There are some broadcast packets caught by the multicast listener, that the meter is sending to 9522.
+	// See https://github.com/mitchese/shm-et340/issues/2
+	if binary.BigEndian.Uint16(b[16:18]) != 24681 {
+		log.Debug("This is a broadcast packet, not from the meter")
+		return
+	}
+
+	changedItems := make(map[string]map[string]dbus.Variant)
+
+	update := func(path, unit string, value float64, precision int) {
+		a.mu.Lock()
+
+		formatString := fmt.Sprintf("%%.%df%%s", precision)
+		textValue := fmt.Sprintf(formatString, value, unit)
+
+		currentValue, valueExists := a.values[0][objectpath(path)]
+
+		// Only update and emit if the value has actually changed
+		if !valueExists || currentValue.Value() != value {
+			a.values[0][objectpath(path)] = dbus.MakeVariant(value)
+			a.values[1][objectpath(path)] = dbus.MakeVariant(textValue)
+
+			a.mu.Unlock() // Unlock before emitting to avoid deadlocks
+
+			// Emit PropertiesChanged for THIS specific path
+			properties := map[string]dbus.Variant{
+				"Value": dbus.MakeVariant(value),
+				"Text":  dbus.MakeVariant(textValue),
+			}
+			a.dbusConn.Emit(dbus.ObjectPath(path), "com.victronenergy.BusItem.PropertiesChanged", properties)
+
+		} else {
+			a.mu.Unlock() // Always unlock
+		}
+	}
+	// --- Your existing decoding logic ---
 	powertot := ((float32(binary.BigEndian.Uint32(b[32:36])) - float32(binary.BigEndian.Uint32(b[52:56]))) / 10.0)
-
-	// Convert watt seconds to kWh
 	bezugtot := float64(binary.BigEndian.Uint64(b[40:48])) / 3600.0 / 1000.0
 	einsptot := float64(binary.BigEndian.Uint64(b[60:68])) / 3600.0 / 1000.0
-
-	log.Debug("Total W: ", powertot)
-	log.Debug("Total Buy kWh: ", bezugtot)
-	log.Debug("Total Sell kWh: ", einsptot)
-
-	log.Info(fmt.Sprintf("Meter update received: %.2f kWh bought and %.2f kWh sold, %.1f W currently flowing",
-		bezugtot, einsptot, powertot))
-
 	L1 := decodePhaseChunk(b[164:308])
 	L2 := decodePhaseChunk(b[308:452])
 	L3 := decodePhaseChunk(b[452:596])
 
-	// Calculate and update total values
+	// --- Use the new helper to batch updates with correct formatting ---
+	// Using 1 decimal for power, 2 for energy/voltage/current is a safe bet.
+	update("/Ac/Power", "W", float64(powertot), 1)
+	update("/Ac/Energy/Reverse", "kWh", einsptot, 2)
+	update("/Ac/Energy/Forward", "kWh", bezugtot, 2)
+
 	totalCurrent := L1.a + L2.a + L3.a
 	totalVoltage := (L1.voltage + L2.voltage + L3.voltage) / 3.0
-	a.UpdateVariant(float64(totalCurrent), "A", "/Ac/Current")
-	a.UpdateVariant(float64(totalVoltage), "V", "/Ac/Voltage")
-
-	a.UpdateVariant(float64(powertot), "W", "/Ac/Power")
-	a.UpdateVariant(float64(einsptot), "kWh", "/Ac/Energy/Reverse")
-	a.UpdateVariant(float64(bezugtot), "kWh", "/Ac/Energy/Forward")
-
-	log.Debug("+-----+-------------+---------------+---------------+")
-	log.Debug("|value|   L1 \t|     L2  \t|   L3  \t|")
-	log.Debug("+-----+-------------+---------------+---------------+")
-	log.Debug(fmt.Sprintf("|  V  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.voltage, L2.voltage, L3.voltage))
-	log.Debug(fmt.Sprintf("|  A  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.a, L2.a, L3.a))
-	log.Debug(fmt.Sprintf("|  W  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.power, L2.power, L3.power))
-	log.Debug(fmt.Sprintf("| kWh | %8.2f \t| %8.2f \t| %8.2f \t|", L1.forward, L2.forward, L3.forward))
-	log.Debug(fmt.Sprintf("| kWh | %8.2f \t| %8.2f \t| %8.2f \t|", L1.reverse, L2.reverse, L3.reverse))
-	log.Debug("+-----+-------------+---------------+---------------+")
+	update("/Ac/Current", "A", float64(totalCurrent), 2)
+	update("/Ac/Voltage", "V", float64(totalVoltage), 2)
 
 	// Update L1 values
-	a.UpdateVariant(float64(L1.power), "W", "/Ac/L1/Power")
-	a.UpdateVariant(float64(L1.voltage), "V", "/Ac/L1/Voltage")
-	a.UpdateVariant(float64(L1.a), "A", "/Ac/L1/Current")
-	a.UpdateVariant(float64(L1.forward), "kWh", "/Ac/L1/Energy/Forward")
-	a.UpdateVariant(float64(L1.reverse), "kWh", "/Ac/L1/Energy/Reverse")
+	update("/Ac/L1/Power", "W", float64(L1.power), 1)
+	update("/Ac/L1/Voltage", "V", float64(L1.voltage), 2)
+	update("/Ac/L1/Current", "A", float64(L1.a), 2)
+	update("/Ac/L1/Energy/Forward", "kWh", L1.forward, 2)
+	update("/Ac/L1/Energy/Reverse", "kWh", L1.reverse, 2)
 
 	// Update L2 values
-	a.UpdateVariant(float64(L2.power), "W", "/Ac/L2/Power")
-	a.UpdateVariant(float64(L2.voltage), "V", "/Ac/L2/Voltage")
-	a.UpdateVariant(float64(L2.a), "A", "/Ac/L2/Current")
-	a.UpdateVariant(float64(L2.forward), "kWh", "/Ac/L2/Energy/Forward")
-	a.UpdateVariant(float64(L2.reverse), "kWh", "/Ac/L2/Energy/Reverse")
+	update("/Ac/L2/Power", "W", float64(L2.power), 1)
+	update("/Ac/L2/Voltage", "V", float64(L2.voltage), 2)
+	update("/Ac/L2/Current", "A", float64(L2.a), 2)
+	update("/Ac/L2/Energy/Forward", "kWh", L2.forward, 2)
+	update("/Ac/L2/Energy/Reverse", "kWh", L2.reverse, 2)
 
 	// Update L3 values
-	a.UpdateVariant(float64(L3.power), "W", "/Ac/L3/Power")
-	a.UpdateVariant(float64(L3.voltage), "V", "/Ac/L3/Voltage")
-	a.UpdateVariant(float64(L3.a), "A", "/Ac/L3/Current")
-	a.UpdateVariant(float64(L3.forward), "kWh", "/Ac/L3/Energy/Forward")
-	a.UpdateVariant(float64(L3.reverse), "kWh", "/Ac/L3/Energy/Reverse")
+	update("/Ac/L3/Power", "W", float64(L3.power), 1)
+	update("/Ac/L3/Voltage", "V", float64(L3.voltage), 2)
+	update("/Ac/L3/Current", "A", float64(L3.a), 2)
+	update("/Ac/L3/Energy/Forward", "kWh", L3.forward, 2)
+	update("/Ac/L3/Energy/Reverse", "kWh", L3.reverse, 2)
 
+	// --- Finally, emit ONE signal with all the batched changes ---
+	a.emitItemsChanged(changedItems)
+
+	log.Info(fmt.Sprintf("Meter update received and published to D-Bus: %.1f W", powertot))
 }
 
 // Run starts the application
@@ -308,7 +316,7 @@ func main() {
 	// Create configuration
 	config := Config{
 		MulticastAddress: "239.12.255.254:9522",
-		DBusName:         "com.victronenergy.grid.cgwacs_ttyUSB0_di30_mb2",
+		DBusName:         "com.victronenergy.grid.cgwacs_ttyUSB0_di30_mb1",
 		LogLevel:         lvl,
 	}
 
@@ -371,8 +379,37 @@ func decodePhaseChunk(b []byte) *singlePhase {
 	//return
 }
 
-// RegisterDBusPaths registers all the DBus paths for the application
 func (a *App) RegisterDBusPaths() error {
+	// --- MOVED THE EXPORT LOGIC BEFORE REQUESTING THE NAME ---
+
+	// Define all paths first
+	paths := []dbus.ObjectPath{
+		// Basic Paths
+		"/Connected", "/CustomName", "/DeviceInstance", "/DeviceType",
+		"/ErrorCode", "/FirmwareVersion", "/Mgmt/Connection", "/Mgmt/ProcessName",
+		"/Mgmt/ProcessVersion", "/ProductName", "/Serial",
+		// Updating Paths
+		"/Ac/L1/Power", "/Ac/L2/Power", "/Ac/L3/Power",
+		"/Ac/L1/Voltage", "/Ac/L2/Voltage", "/Ac/L3/Voltage",
+		"/Ac/L1/Current", "/Ac/L2/Current", "/Ac/L3/Current",
+		"/Ac/L1/Energy/Forward", "/Ac/L2/Energy/Forward", "/Ac/L3/Energy/Forward",
+		"/Ac/L1/Energy/Reverse", "/Ac/L2/Energy/Reverse", "/Ac/L3/Energy/Reverse",
+		"/Ac/Current", "/Ac/Voltage", "/Ac/Power", "/Ac/Energy/Forward", "/Ac/Energy/Reverse",
+	}
+
+	// Export all objects ONCE.
+	// We export the root object "/" and the bus item interface will handle sub-paths.
+	// For this specific library's handler methods, we need to export each path.
+	a.dbusConn.Export(introspect.Introspectable(intro), "/", "org.freedesktop.DBus.Introspectable")
+	for _, p := range paths {
+		log.Debug("Exporting dbus path: ", p)
+		// The objectpath type itself is the implementation
+		a.dbusConn.Export(objectpath(p), p, "com.victronenergy.BusItem")
+	}
+
+	// --- NOW, REQUEST THE NAME ---
+	// This is the "go live" signal.
+	log.Infof("All paths exported. Requesting name %s on D-Bus...", a.config.DBusName)
 	reply, err := a.dbusConn.RequestName(a.config.DBusName, dbus.NameFlagDoNotQueue)
 	if err != nil {
 		return fmt.Errorf("failed to request DBus name: %w", err)
@@ -382,58 +419,14 @@ func (a *App) RegisterDBusPaths() error {
 		return fmt.Errorf("name %s already taken on dbus", a.config.DBusName)
 	}
 
-	basicPaths := []dbus.ObjectPath{
-		"/Connected",
-		"/CustomName",
-		"/DeviceInstance",
-		"/DeviceType",
-		"/ErrorCode",
-		"/FirmwareVersion",
-		"/Mgmt/Connection",
-		"/Mgmt/ProcessName",
-		"/Mgmt/ProcessVersion",
-		//"/Position",
-		//"/ProductId",
-		"/ProductName",
-		"/Serial",
-	}
-
-	updatingPaths := []dbus.ObjectPath{
-		"/Ac/L1/Power",
-		"/Ac/L2/Power",
-		"/Ac/L3/Power",
-		"/Ac/L1/Voltage",
-		"/Ac/L2/Voltage",
-		"/Ac/L3/Voltage",
-		"/Ac/L1/Current",
-		"/Ac/L2/Current",
-		"/Ac/L3/Current",
-		"/Ac/L1/Energy/Forward",
-		"/Ac/L2/Energy/Forward",
-		"/Ac/L3/Energy/Forward",
-		"/Ac/L1/Energy/Reverse",
-		"/Ac/L2/Energy/Reverse",
-		"/Ac/L3/Energy/Reverse",
-		"/Ac/Current",
-		"/Ac/Voltage",
-		"/Ac/Power",
-		"/Ac/Energy/Forward",
-		"/Ac/Energy/Reverse",
-	}
-
-	for _, s := range basicPaths {
-		log.Debug("Registering dbus basic path: ", s)
-		a.dbusConn.Export(objectpath(s), s, "com.victronenergy.BusItem")
-		a.dbusConn.Export(introspect.Introspectable(intro), s, "org.freedesktop.DBus.Introspectable")
-	}
-
-	for _, s := range updatingPaths {
-		log.Debug("Registering dbus update path: ", s)
-		a.dbusConn.Export(objectpath(s), s, "com.victronenergy.BusItem")
-		a.dbusConn.Export(introspect.Introspectable(intro), s, "org.freedesktop.DBus.Introspectable")
-	}
-
+	log.Info("Successfully acquired D-Bus name.")
 	return nil
+}
+
+func (a *App) emitItemsChanged(items map[string]map[string]dbus.Variant) {
+	if len(items) > 0 {
+		a.dbusConn.Emit("/", "com.victronenergy.BusItem.ItemsChanged", items)
+	}
 }
 
 // InitializeValues sets up the initial DBus values
@@ -534,7 +527,7 @@ func (a *App) InitializeValues() {
 }
 
 // UpdateVariant updates a DBus value and emits the change
-
+/*
 func (a *App) UpdateVariant(value float64, unit string, path string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -560,4 +553,4 @@ func (a *App) UpdateVariant(value float64, unit string, path string) {
 	// 3. Emit the 'items' map directly. The D-Bus library will correctly
 	// serialize this as an array of dictionary entries.
 	a.dbusConn.Emit("/", "com.victronenergy.BusItem.ItemsChanged", items)
-}
+}*/
