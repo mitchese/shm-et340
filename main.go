@@ -98,6 +98,9 @@ const intro = `
     <method name="GetValue">
       <arg direction="out" type="v" />
     </method>
+    <method name="GetItems">
+      <arg direction="out" type="a{sa{sv}}" name="values"/>
+    </method>
 	</interface>` + introspect.IntrospectDataString + `</node> `
 
 type objectpath string
@@ -198,34 +201,34 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 		return
 	}
 
+	// This map will be populated with all the changes and sent in a single signal.
 	changedItems := make(map[string]map[string]dbus.Variant)
 
+	// The 'update' helper's role is now to check for a change and, if there is one,
+	// update the internal state AND add the change to our 'changedItems' batch.
+	// It no longer emits signals itself.
 	update := func(path, unit string, value float64, precision int) {
 		a.mu.Lock()
+		defer a.mu.Unlock()
 
 		formatString := fmt.Sprintf("%%.%df%%s", precision)
 		textValue := fmt.Sprintf(formatString, value, unit)
 
 		currentValue, valueExists := a.values[0][objectpath(path)]
 
-		// Only update and emit if the value has actually changed
+		// Only update and add to batch if the value has actually changed
 		if !valueExists || currentValue.Value() != value {
 			a.values[0][objectpath(path)] = dbus.MakeVariant(value)
 			a.values[1][objectpath(path)] = dbus.MakeVariant(textValue)
 
-			a.mu.Unlock() // Unlock before emitting to avoid deadlocks
-
-			// Emit PropertiesChanged for THIS specific path
-			properties := map[string]dbus.Variant{
+			// Add the changed properties to our batch map.
+			changedItems[path] = map[string]dbus.Variant{
 				"Value": dbus.MakeVariant(value),
 				"Text":  dbus.MakeVariant(textValue),
 			}
-			a.dbusConn.Emit(dbus.ObjectPath(path), "com.victronenergy.BusItem.PropertiesChanged", properties)
-
-		} else {
-			a.mu.Unlock() // Always unlock
 		}
 	}
+
 	// --- Your existing decoding logic ---
 	powertot := ((float32(binary.BigEndian.Uint32(b[32:36])) - float32(binary.BigEndian.Uint32(b[52:56]))) / 10.0)
 	bezugtot := float64(binary.BigEndian.Uint64(b[40:48])) / 3600.0 / 1000.0
@@ -267,6 +270,7 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	update("/Ac/L3/Energy/Reverse", "kWh", L3.reverse, 2)
 
 	// --- Finally, emit ONE signal with all the batched changes ---
+	// This will now work as intended because the 'update' helper has populated 'changedItems'.
 	a.emitItemsChanged(changedItems)
 
 	log.Info(fmt.Sprintf("Meter update received and published to D-Bus: %.1f W", powertot))
@@ -397,10 +401,13 @@ func (a *App) RegisterDBusPaths() error {
 		"/Ac/Current", "/Ac/Voltage", "/Ac/Power", "/Ac/Energy/Forward", "/Ac/Energy/Reverse",
 	}
 
-	// Export all objects ONCE.
-	// We export the root object "/" and the bus item interface will handle sub-paths.
-	// For this specific library's handler methods, we need to export each path.
+	// Export the root object, which now handles GetItems
+	a.dbusConn.Export(a, "/", "com.victronenergy.BusItem")
+
+	// Also export the introspectable interface on the root
 	a.dbusConn.Export(introspect.Introspectable(intro), "/", "org.freedesktop.DBus.Introspectable")
+
+	// Export all the individual paths for GetValue/GetText/SetValue
 	for _, p := range paths {
 		log.Debug("Exporting dbus path: ", p)
 		// The objectpath type itself is the implementation
@@ -554,3 +561,28 @@ func (a *App) UpdateVariant(value float64, unit string, path string) {
 	// serialize this as an array of dictionary entries.
 	a.dbusConn.Emit("/", "com.victronenergy.BusItem.ItemsChanged", items)
 }*/
+
+func (a *App) GetItems() (map[string]map[string]dbus.Variant, *dbus.Error) {
+	log.Debug("GetItems() called on root")
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	items := make(map[string]map[string]dbus.Variant)
+
+	// Iterate over all known paths
+	for path, valueVariant := range a.values[0] {
+		pathStr := string(path)
+		textVariant, ok := a.values[1][path]
+		if !ok {
+			// This case should ideally not happen if InitializeValues is correct
+			textVariant = dbus.MakeVariant("")
+		}
+
+		items[pathStr] = map[string]dbus.Variant{
+			"Value": valueVariant,
+			"Text":  textVariant,
+		}
+	}
+
+	return items, nil
+}
