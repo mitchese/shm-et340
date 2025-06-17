@@ -105,14 +105,6 @@ const intro = `
 
 type objectpath string
 
-var victronValues = map[int]map[objectpath]dbus.Variant{
-	// 0: This will be used to store the VALUE variant
-	0: map[objectpath]dbus.Variant{},
-	// 1: This will be used to store the STRING variant
-	1: map[objectpath]dbus.Variant{},
-}
-
-// GetValue returns the value variant for the object path
 func (f objectpath) GetValue() (dbus.Variant, *dbus.Error) {
 	log.Debug("GetValue() called for ", f)
 	app := GetApp()
@@ -125,7 +117,6 @@ func (f objectpath) GetValue() (dbus.Variant, *dbus.Error) {
 	return app.values[0][f], nil
 }
 
-// GetText returns the text variant for the object path
 func (f objectpath) GetText() (string, *dbus.Error) {
 	log.Debug("GetText() called for ", f)
 	app := GetApp()
@@ -138,7 +129,6 @@ func (f objectpath) GetText() (string, *dbus.Error) {
 	return strings.Trim(app.values[1][f].String(), "\""), nil
 }
 
-// SetValue sets the value for the object path
 func (f objectpath) SetValue(value dbus.Variant) (int32, *dbus.Error) {
 	log.Debug("SetValue() called for ", f, " with value ", value)
 	app := GetApp()
@@ -151,15 +141,12 @@ func (f objectpath) SetValue(value dbus.Variant) (int32, *dbus.Error) {
 	return 0, nil
 }
 
-// globalApp is used to store the application instance for the objectpath methods
 var globalApp *App
 
-// GetApp returns the global application instance
 func GetApp() *App {
 	return globalApp
 }
 
-// SetApp sets the global application instance
 func SetApp(app *App) {
 	globalApp = app
 }
@@ -180,17 +167,17 @@ func init() {
 
 func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 
-	if n < 596 {
+	if n < 500 {
 		log.Debug("Received packet is probably too small. Size: ", n)
 		log.Debug("Serial: ", binary.BigEndian.Uint32(b[20:24]))
 		return
 	}
 
+	// 0-28: SMA/SUSyID/SN/Uptime
 	if a.config.SMASusyID > 0 && uint32(a.config.SMASusyID) != binary.BigEndian.Uint32(b[20:24]) {
 		log.Debugf("Oops, I was told to only listen for updates from %d, but this update is from %d", a.config.SMASusyID, binary.BigEndian.Uint32(b[20:24]))
 		return
 	}
-	// 0-28: SMA/SUSyID/SN/Uptime
 	log.Debug("----------------------")
 	log.Debug("Received datagram from meter")
 
@@ -201,12 +188,8 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 		return
 	}
 
-	// This map will be populated with all the changes and sent in a single signal.
 	changedItems := make(map[string]map[string]dbus.Variant)
 
-	// The 'update' helper's role is now to check for a change and, if there is one,
-	// update the internal state AND add the change to our 'changedItems' batch.
-	// It no longer emits signals itself.
 	update := func(path, unit string, value float64, precision int) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -229,7 +212,6 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 		}
 	}
 
-	// --- Your existing decoding logic ---
 	powertot := ((float32(binary.BigEndian.Uint32(b[32:36])) - float32(binary.BigEndian.Uint32(b[52:56]))) / 10.0)
 	bezugtot := float64(binary.BigEndian.Uint64(b[40:48])) / 3600.0 / 1000.0
 	einsptot := float64(binary.BigEndian.Uint64(b[60:68])) / 3600.0 / 1000.0
@@ -239,10 +221,10 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 
 	// --- Use the new helper to batch updates with correct formatting ---
 	// Using 1 decimal for power, 2 for energy/voltage/current is a safe bet.
+	// First, Totals
 	update("/Ac/Power", "W", float64(powertot), 1)
 	update("/Ac/Energy/Reverse", "kWh", einsptot, 2)
 	update("/Ac/Energy/Forward", "kWh", bezugtot, 2)
-
 	totalCurrent := L1.a + L2.a + L3.a
 	totalVoltage := (L1.voltage + L2.voltage + L3.voltage) / 3.0
 	update("/Ac/Current", "A", float64(totalCurrent), 2)
@@ -269,8 +251,7 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	update("/Ac/L3/Energy/Forward", "kWh", L3.forward, 2)
 	update("/Ac/L3/Energy/Reverse", "kWh", L3.reverse, 2)
 
-	// --- Finally, emit ONE signal with all the batched changes ---
-	// This will now work as intended because the 'update' helper has populated 'changedItems'.
+	// finally, post the updates
 	a.emitItemsChanged(changedItems)
 
 	log.Info(fmt.Sprintf("Meter update received and published to D-Bus: %.1f W", powertot))
@@ -362,7 +343,7 @@ func decodePhaseChunk(b []byte) *singlePhase {
 	bezugW := float32(binary.BigEndian.Uint32(b[4:8])) / 10.0
 	einspeiseW := float32(binary.BigEndian.Uint32(b[24:28])) / 10.0
 
-	// this is in watt seconds ... chagne to kilo(100)watthour(3600)s:
+	// this is in watt seconds ... chagne to kilo(1000)watthour(3600)s:
 	bezugkWh := float64(binary.BigEndian.Uint64(b[12:20])) / 3600.0 / 1000.0
 	einspeisekWh := float64(binary.BigEndian.Uint64(b[32:40])) / 3600.0 / 1000.0
 
@@ -384,15 +365,12 @@ func decodePhaseChunk(b []byte) *singlePhase {
 }
 
 func (a *App) RegisterDBusPaths() error {
-	// --- MOVED THE EXPORT LOGIC BEFORE REQUESTING THE NAME ---
-
-	// Define all paths first
 	paths := []dbus.ObjectPath{
-		// Basic Paths
+		// Basic Paths whch never change
 		"/Connected", "/CustomName", "/DeviceInstance", "/DeviceType",
 		"/ErrorCode", "/FirmwareVersion", "/Mgmt/Connection", "/Mgmt/ProcessName",
 		"/Mgmt/ProcessVersion", "/ProductName", "/Serial",
-		// Updating Paths
+		// Updating Paths, which change every time the meter sends a packet
 		"/Ac/L1/Power", "/Ac/L2/Power", "/Ac/L3/Power",
 		"/Ac/L1/Voltage", "/Ac/L2/Voltage", "/Ac/L3/Voltage",
 		"/Ac/L1/Current", "/Ac/L2/Current", "/Ac/L3/Current",
@@ -401,21 +379,16 @@ func (a *App) RegisterDBusPaths() error {
 		"/Ac/Current", "/Ac/Voltage", "/Ac/Power", "/Ac/Energy/Forward", "/Ac/Energy/Reverse",
 	}
 
-	// Export the root object, which now handles GetItems
 	a.dbusConn.Export(a, "/", "com.victronenergy.BusItem")
 
-	// Also export the introspectable interface on the root
 	a.dbusConn.Export(introspect.Introspectable(intro), "/", "org.freedesktop.DBus.Introspectable")
 
-	// Export all the individual paths for GetValue/GetText/SetValue
 	for _, p := range paths {
 		log.Debug("Exporting dbus path: ", p)
-		// The objectpath type itself is the implementation
 		a.dbusConn.Export(objectpath(p), p, "com.victronenergy.BusItem")
 	}
 
-	// --- NOW, REQUEST THE NAME ---
-	// This is the "go live" signal.
+	// only after all paths are exported, request the name
 	log.Infof("All paths exported. Requesting name %s on D-Bus...", a.config.DBusName)
 	reply, err := a.dbusConn.RequestName(a.config.DBusName, dbus.NameFlagDoNotQueue)
 	if err != nil {
@@ -469,7 +442,7 @@ func (a *App) InitializeValues() {
 	a.values[0]["/Mgmt/ProcessVersion"] = dbus.MakeVariant("1.8.0")
 	a.values[1]["/Mgmt/ProcessVersion"] = dbus.MakeVariant("1.8.0")
 
-	// these used to be in the old demo, but have been removed
+	// these used to be in the old demo, but have been removed. Not sure what they did, but they may be useful in the future
 	//a.values[0]["/Position"] = dbus.MakeVariantWithSignature(0, dbus.SignatureOf(123))
 	///a.values[1]["/Position"] = dbus.MakeVariant("0")
 	//a.values[0]["/ProductId"] = dbus.MakeVariant(45058)
@@ -532,35 +505,6 @@ func (a *App) InitializeValues() {
 	a.values[0]["/Ac/Energy/Reverse"] = dbus.MakeVariant(0.0)
 	a.values[1]["/Ac/Energy/Reverse"] = dbus.MakeVariant("0 kWh")
 }
-
-// UpdateVariant updates a DBus value and emits the change
-/*
-func (a *App) UpdateVariant(value float64, unit string, path string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// 1. Create the inner dictionary for properties ("Value", "Text")
-	// The type is map[string]dbus.Variant
-	properties := make(map[string]dbus.Variant)
-	// Note: The desired output rounds to a whole number, so I'm using "%.0f"
-	properties["Text"] = dbus.MakeVariant(fmt.Sprintf("%.0f", value) + unit)
-	properties["Value"] = dbus.MakeVariant(value)
-
-	// Update your internal state if needed (this part is from your original code)
-	// You might want to update this logic to better suit your new structure
-	// For example, you might store the `properties` map directly.
-	a.values[0][objectpath(path)] = properties["Value"]
-	a.values[1][objectpath(path)] = properties["Text"]
-
-	// 2. Create the outer dictionary that maps the path to its properties
-	// The type is map[string]map[string]dbus.Variant
-	items := make(map[string]map[string]dbus.Variant)
-	items[path] = properties
-
-	// 3. Emit the 'items' map directly. The D-Bus library will correctly
-	// serialize this as an array of dictionary entries.
-	a.dbusConn.Emit("/", "com.victronenergy.BusItem.ItemsChanged", items)
-}*/
 
 func (a *App) GetItems() (map[string]map[string]dbus.Variant, *dbus.Error) {
 	log.Debug("GetItems() called on root")
