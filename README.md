@@ -6,7 +6,10 @@ if it were the ET340 meter.
 Use this at your own risk, I have no association with Victron or SMA and am providing
 this for anyone who already has these components and wants to play around with this.
 
-I use this privately, and it works in my timezone, your results may vary
+I use this privately, and it works in my timezone, your results may vary. I have it running
+for around 5 years. Note that the Venus GX may not have enough CPU capacity to run this.
+I moved my setup is on a Raspberry Pi after discovering updates to the Venus Portal were
+sometimes delayed.
 
 # Setup
 
@@ -38,6 +41,8 @@ then:
 While this is running, you should see correct values for a grid meter in your Venus UI:
 
 ![Venus GX UI](img/meter_sample.gif)
+
+![Venus UI v2](img/victron_gui_v2.gif)
 
 On the console of your GX device, you should see regular updates, around once per second:
 
@@ -120,7 +125,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # TODO
 
-  - [ ] Setup a start/stop script and describe how to install as a system service
   - [ ] Make builds and releases automatic
-  - [ ] Test against fw upgrades of the Venus OS
   - [ ] Handle a power failure of the Home manager (or other network issues preventing updates)
