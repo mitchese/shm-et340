@@ -18,13 +18,13 @@ Note that the processor is quite slow in the Victron Venus GX; If the portal sto
 
 ### 1. Prepare your Victron device
 
-- Enable "Superuser" mode:  
+- Enable "Superuser" mode:
   Go to **Settings → General** and activate Superuser (see [Victron docs](https://www.victronenergy.com/live/ccgx:root_access)).
 - Set an SSH password and enable SSH on LAN (in the same menu).
 
 ### 2. Get the program
 
-- Download the file named `shm-et340.armv7l` from the latest [releases](https://github.com/mitchese/shm-et340/releases)
+- Download the file named `shm-et340` from the latest [releases](https://github.com/mitchese/shm-et340/releases)
 
 ### 3. Copy the program to your Victron device
 
@@ -35,7 +35,7 @@ Note that the processor is quite slow in the Victron Venus GX; If the portal sto
 - Use **Putty** (Windows) or a terminal (Mac/Linux) to SSH into your Victron device.
 - In the terminal, type:
   ```
-  ./shm-et340.armv7l
+  ./shm-et340
   ```
 - You should see output like this:
   ```
@@ -43,9 +43,8 @@ Note that the processor is quite slow in the Victron Venus GX; If the portal sto
   ```
 ### 5. Permanent Installation
 
-[christian1980nrw](https://github.com/christian1980nrw) has created a nice and easy install script, just
-run the install.sh which should do everything below. This is not immutable, so only run it once, if it fails
-then follow each command in the script
+- [christian1980nrw](https://github.com/christian1980nrw) has created a nice and easy install script, just run the install.sh which should do everything below. This is not immutable, so only run it once, if it fails then follow each command in the script
+
 ---
 
 ## What should I see?
@@ -55,7 +54,7 @@ then follow each command in the script
 
 ## Troubleshooting
 
-- **No data or stops after a few minutes?**  
+- **No data or stops after a few minutes?**
   Make sure "IGMP Snooping" is enabled on your network switches/routers. This is needed for the data to reach your Victron device.
 - **Multiple Meters**
   If you have multiple meters, you can specify which serial number this should use with the `SMASUSYID=1234567890` environment variable. The meter's serial number can be found in the web UI of your inverter under Device Configuration -> Meter on Speedwire -> Serial
@@ -66,9 +65,9 @@ then follow each command in the script
 
 You can change some settings by setting environment variables before running the program:
 
-- `SMA_ENERGY_METER=true`  
+- `SMA_ENERGY_METER=true`
   Use this if you have the older SMA Energy Meter 1.0 (most people can ignore this).
-- `LOG_LEVEL=debug`  
+- `LOG_LEVEL=debug`
   Shows more detailed information for troubleshooting.
 - `SMASUSYID=1234567890`
   Ignores meter updates from all meters except ones with this serial
@@ -76,14 +75,14 @@ You can change some settings by setting environment variables before running the
 
 Example:
 ```
-SMA_ENERGY_METER=true LOG_LEVEL=debug ./shm-et340.armv7l
+SMA_ENERGY_METER=true LOG_LEVEL=debug ./shm-et340
 ```
 
 ---
 
 ## For advanced users: Compiling from source
 
-If you want to build the program yourself, you'll need Go installed.  
+If you want to build the program yourself, you'll need Go installed.
 Run:
 ```
 go build -o shm-et340 main.go
