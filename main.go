@@ -36,6 +36,8 @@ const (
 	address = "239.12.255.254:9522"
 )
 
+var isEnergyMeter bool // true if it is a 1.0 energy meter, false if it is a 2.0 SHM
+
 // Config holds all configuration for the application
 type Config struct {
 	MulticastAddress string
@@ -163,6 +165,11 @@ func init() {
 	}
 
 	log.SetLevel(ll)
+
+	isEnergyMeter = os.Getenv("SMA_ENERGY_METER") == "true"
+	if isEnergyMeter {
+		log.Printf("SMA Energy Meter, NOT SHM2!")
+	}
 }
 
 func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
@@ -215,9 +222,22 @@ func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
 	powertot := ((float32(binary.BigEndian.Uint32(b[32:36])) - float32(binary.BigEndian.Uint32(b[52:56]))) / 10.0)
 	bezugtot := float64(binary.BigEndian.Uint64(b[40:48])) / 3600.0 / 1000.0
 	einsptot := float64(binary.BigEndian.Uint64(b[60:68])) / 3600.0 / 1000.0
-	L1 := decodePhaseChunk(b[164:308])
-	L2 := decodePhaseChunk(b[308:452])
-	L3 := decodePhaseChunk(b[452:596])
+
+	var L1, L2, L3 *singlePhase
+
+	if isEnergyMeter {
+		L1 = decodePhaseChunk(b[156:300])
+		L2 = decodePhaseChunk(b[300:444])
+		L3 = decodePhaseChunk(b[444:588])
+	} else {
+		L1 = decodePhaseChunk(b[164:308])
+		L2 = decodePhaseChunk(b[308:452])
+		L3 = decodePhaseChunk(b[452:596])
+	}
+
+	if log.IsLevelEnabled(log.DebugLevel) {
+		PrintPhaseTable(L1, L2, L3)
+	}
 
 	// --- Use the new helper to batch updates with correct formatting ---
 	// Using 1 decimal for power, 2 for energy/voltage/current is a safe bet.
@@ -529,4 +549,16 @@ func (a *App) GetItems() (map[string]map[string]dbus.Variant, *dbus.Error) {
 	}
 
 	return items, nil
+}
+
+func PrintPhaseTable(L1, L2, L3 *singlePhase) {
+	log.Println("+-----+-------------+---------------+---------------+")
+	log.Println("|value|   L1 \t|     L2  \t|   L3  \t|")
+	log.Println("+-----+-------------+---------------+---------------+")
+	log.Printf("|  V  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.voltage, L2.voltage, L3.voltage)
+	log.Printf("|  A  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.a, L2.a, L3.a)
+	log.Printf("|  W  | %8.2f \t| %8.2f \t| %8.2f \t|", L1.power, L2.power, L3.power)
+	log.Printf("| kWh | %8.2f \t| %8.2f \t| %8.2f \t|", L1.forward, L2.forward, L3.forward)
+	log.Printf("| kWh | %8.2f \t| %8.2f \t| %8.2f \t|", L1.reverse, L2.reverse, L3.reverse)
+	log.Println("+-----+-------------+---------------+---------------+")
 }

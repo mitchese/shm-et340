@@ -1,129 +1,104 @@
-# Victron Faker
-This small program emulates the ET340 Energy Meter in a Victron ESS System. It reads
-values from an existing SMA Home Manager 2.0, and publishes the result on dbus as
-if it were the ET340 meter.
+# SMA Home Manager to Victron ET340 Bridge
 
-Use this at your own risk, I have no association with Victron or SMA and am providing
-this for anyone who already has these components and wants to play around with this.
-
-I use this privately, and it works in my timezone, your results may vary. I have it running
-for around 5 years. Note that the Venus GX may not have enough CPU capacity to run this.
-I moved my setup is on a Raspberry Pi after discovering updates to the Venus Portal were
-sometimes delayed.
-
-# Setup
-
-First ensure that this will work: Try out https://github.com/mitchese/sma_home_manager_printer
-which will run on your Victron GX device and try to connect to the SMA meter. The above test
-program does _not_ publish its result on dbus for use by victron, only prints out the result
-for your verification. It should be relatively safe to test with.
-
-If the `sma_home_manager_printer` works and shows consistent/reliable result, then you can
-install this in the same way.
-
-## Automatic Setup
-
-[christian1980nrw](https://github.com/christian1980nrw) has created a nice and easy install script, just
-run the install.sh which should do everything below. This is not immutable, so only run it once, if it fails
-then follow the manual setup below
-
-## Manual Setup
-
-*You don't need to compile the source code* if you don't want to (see compiling below). Head over
-to the [releases](https://github.com/mitchese/shm-et340/releases) and download the latest version.
-then:
-
-  * Unzip the release zipfile, which contains the "shm-et340" binary compiled for ArmV7
-  * Review [how to setup root access](https://www.victronenergy.com/live/ccgx:root_access) on the device
-  * Use SCP (`scp ./shm-et340 root@192.168.xxx.xxx:`) or WinSCP to copy the shm-et340 to the Venus
-  * SSH in to the venus (`ssh root@192.168.xxx.xxx`) and finally run it `./shm-et340`)
-
-While this is running, you should see correct values for a grid meter in your Venus UI:
+This program lets your Victron system read power and energy data from an SMA Home Manager, or SMA Energy Meter as if it were a Victron ET340 meter.  
+**No extra meter hardware is needed!**
 
 ![Venus GX UI](img/meter_sample.gif)
 
 ![Venus UI v2](img/victron_gui_v2.gif)
 
-On the console of your GX device, you should see regular updates, around once per second:
+---
 
-```
-root@victronvenusgx:~# ./shm-et340
-INFO[0000] Successfully connected to dbus and registered as a meter... Commencing reading of the SMA meter
-INFO[0000] Meter update received: 6677.15 kWh bought and 3200.45 kWh sold, 681.3 W currently flowing
-INFO[0001] Meter update received: 6677.15 kWh bought and 3200.45 kWh sold, 694.1 W currently flowing
-INFO[0002] Meter update received: 6677.15 kWh bought and 3200.45 kWh sold, 686.3 W currently flowing
-```
+## How to use it
 
-If this does not work, try to `export LOG_LEVEL="debug"` first, which should print out significantly more
-information on what's happening.
+Use this at your own risk, I have no association with Victron or SMA and am providing
+this for anyone who already has these components and wants to play around with this.
 
-# Starting at boot
+Note that the processor is quite slow in the Victron Venus GX; If the portal stops updating while this is running, this is because there aren't enough resources. I run mine on a raspberry pi 4.
 
-The above steps will start it once, which will run until the next reboot. Doing the following will start it on every boot
+### 1. Prepare your Victron device
 
-Thanks to [ricott](https://github.com/ricott) for the tip here. The full description of how to start on boot
-can be found [here](https://www.victronenergy.com/live/ccgx:root_access). Basically, add the call to `/data/rc.local`.
+- Enable "Superuser" mode:
+  Go to **Settings → General** and activate Superuser (see [Victron docs](https://www.victronenergy.com/live/ccgx:root_access)).
+- Set an SSH password and enable SSH on LAN (in the same menu).
 
-Mine tried to start before the network was up, which resulted in an error and it not starting. To 'fix' this, I just wait 15s in the
-rc.local before trying to start the script ... not great but it works.
+### 2. Get the program
 
-```
-root@beaglebone:~# cat /data/rc.local
-#!/bin/bash
+- Download the file named `shm-et340` from the latest [releases](https://github.com/mitchese/shm-et340/releases)
 
-sleep 15
-setsid /data/home/root/shm-et340 > /dev/null 2>/dev/null &
+### 3. Copy the program to your Victron device
 
-root@beaglebone:~# ls -l /data/rc.local
--rwxr-xr-x    1 root     root            81 Feb 18 15:38 /data/rc.local
+- Use a tool like **WinSCP** (Windows) or the `scp` command (Mac/Linux) to copy the file to your Victron device.
 
-```
+### 4. Run the program
 
-# Compiling from source
+- Use **Putty** (Windows) or a terminal (Mac/Linux) to SSH into your Victron device.
+- In the terminal, type:
+  ```
+  ./shm-et340
+  ```
+- You should see output like this:
+  ```
+  Meter update received and published to D-Bus: 484.0 W
+  ```
+### 5. Permanent Installation
 
-For windows, and more detailed instructions, head on over to [Schnema1's fork](https://github.com/Schnema1/sma_home_manager_printer)
+- [christian1980nrw](https://github.com/christian1980nrw) has created a nice and easy install script, just run the install.sh which should do everything below. This is not immutable, so only run it once, if it fails then follow each command in the script
 
-To compile this for the Venus GX (an Arm 7 processor), you can easily cross-compile with the following:
+---
 
-`GOOS=linux GOARCH=arm GOARM=7 go build`
+## What should I see?
 
+- Your Victron dashboard will show grid power, voltage, current, and energy values as if you had a real ET340 meter.
+- The program will print updates every meter update, which is every second.
 
-# Additional Info
+## Troubleshooting
 
-For more details, see the thread on the Victron Energy community forums here:
+- **No data or stops after a few minutes?**
+  Make sure "IGMP Snooping" is enabled on your network switches/routers. This is needed for the data to reach your Victron device.
+- **Multiple Meters**
+  If you have multiple meters, you can specify which serial number this should use with the `SMASUSYID=1234567890` environment variable. The meter's serial number can be found in the web UI of your inverter under Device Configuration -> Meter on Speedwire -> Serial
 
-https://community.victronenergy.com/questions/49293/alternative-to-et340-mqtt-sma-home-manager.html
+---
 
-# Multiple SMA meters
+## Advanced: Settings
 
-If you are using multiple SMA meteres (example, a Sunny Home Manager and a Energy Meter 2)
-in the same network, you will need to provide the serial number of which meter you want this
-to follow.
+You can change some settings by setting environment variables before running the program:
+
+- `SMA_ENERGY_METER=true`
+  Use this if you have the older SMA Energy Meter 1.0 (most people can ignore this).
+- `LOG_LEVEL=debug`
+  Shows more detailed information for troubleshooting.
+- `SMASUSYID=1234567890`
+  Ignores meter updates from all meters except ones with this serial
+
 
 Example:
 ```
-SMASUSYID=1234567890 ./shm-et340
+SMA_ENERGY_METER=true LOG_LEVEL=debug ./shm-et340
 ```
 
-This is the meters' serial number, which can be found in the web UI of your inverter under
-Device Configuration -> Meter on Speedwire -> Serial
+---
 
-# License
+## For advanced users: Compiling from source
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+If you want to build the program yourself, you'll need Go installed.
+Run:
+```
+go build -o shm-et340 main.go
+```
+Or cross-compile for your device. For the ARM processors on victron devices,
+```
+GOARCH="arm" GOOS="linux" go build -o shm-et340 main.go
+```
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+---
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+## License
 
-# TODO
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-  - [ ] Make builds and releases automatic
-  - [ ] Handle a power failure of the Home manager (or other network issues preventing updates)
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
+

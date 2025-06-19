@@ -1,7 +1,7 @@
 #!/bin/sh
 mkdir -p /data/drivers/shm-et340/service
 cd /data/drivers/shm-et340
-wget https://github.com/mitchese/shm-et340/releases/download/v0.4/shm-et340
+wget https://github.com/mitchese/shm-et340/releases/download/v0.6/shm-et340
 chmod +x ./shm-et340
 cd /data/drivers/shm-et340/service
 wget https://raw.githubusercontent.com/mitchese/shm-et340/master/service/run
