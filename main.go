@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dmichael/go-multicast/multicast"
 	"github.com/godbus/dbus/introspect"
@@ -53,6 +54,7 @@ type App struct {
 	values     map[int]map[objectpath]dbus.Variant
 	mu         sync.RWMutex
 	shutdownCh chan struct{}
+	lastEmit   time.Time
 }
 
 // NewApp creates a new application instance
@@ -173,6 +175,14 @@ func init() {
 }
 
 func (a *App) HandleMessage(src *net.UDPAddr, n int, b []byte) {
+    // Rate‑Limit: max. 1 update/second
+    a.mu.Lock()
+    if time.Since(a.lastEmit) < time.Second {
+        a.mu.Unlock()
+        return
+    }
+    a.lastEmit = time.Now()
+    a.mu.Unlock()
 
 	if n < 500 {
 		log.Debug("Received packet is probably too small. Size: ", n)
