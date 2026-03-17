@@ -39,7 +39,7 @@ jobs:
         if [ "${{ matrix.goarch }}" = "arm" ]; then
           export GOARM=7
         fi
-        go build -v -o shm-et340 .
+        go build -v -ldflags "-X main.Version=${GITHUB_REF_NAME}" -o shm-et340 .
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
