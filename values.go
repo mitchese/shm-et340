@@ -51,6 +51,9 @@ func (a *App) InitializeValues() {
 	// Serial — overwritten on first packet with real SMA serial
 	set("/Serial", "detecting...", "detecting...")
 
+	// RefreshTime: data update interval in seconds (ET340 multicast updates every 1s)
+	set("/RefreshTime", int32(1), "1")
+
 	// Per-phase values initialized to zero
 	for _, phase := range []string{"/Ac/L1", "/Ac/L2", "/Ac/L3"} {
 		set(phase+"/Power", 0.0, "0.0 W")

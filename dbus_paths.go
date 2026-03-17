@@ -64,6 +64,43 @@ func (f objectpath) SetValue(value dbus.Variant) (int32, *dbus.Error) {
 	return 0, nil
 }
 
+// GetItems on an individual path returns just this path's value and text,
+// satisfying the com.victronenergy.BusItem interface declared in introspection XML.
+func (f objectpath) GetItems() (map[string]map[string]dbus.Variant, *dbus.Error) {
+	log.Debug("GetItems() called for ", f)
+	app := GetApp()
+	if app == nil {
+		return nil, dbus.NewError("com.victronenergy.BusItem.Error", []interface{}{"Application not initialized"})
+	}
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+
+	textVariant, ok := app.values[1][f]
+	if !ok {
+		textVariant = dbus.MakeVariant("")
+	}
+	return map[string]map[string]dbus.Variant{
+		string(f): {
+			"Value": app.values[0][f],
+			"Text":  textVariant,
+		},
+	}, nil
+}
+
+// GetValue on the root path returns all paths and their values as a dict,
+// compatible with the Victron com.victronenergy.BusItem specification.
+func (a *App) GetValue() (dbus.Variant, *dbus.Error) {
+	log.Debug("GetValue() called on root")
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	result := make(map[string]dbus.Variant)
+	for path, v := range a.values[0] {
+		result[string(path)] = v
+	}
+	return dbus.MakeVariant(result), nil
+}
+
 // GetItems returns all path values (called on the App at root "/").
 func (a *App) GetItems() (map[string]map[string]dbus.Variant, *dbus.Error) {
 	log.Debug("GetItems() called on root")

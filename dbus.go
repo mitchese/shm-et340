@@ -44,12 +44,30 @@ const introXML = `
     </method>
 	</interface>` + introspect.IntrospectDataString + `</node> `
 
+const introXMLPath = `
+<node>
+   <interface name="com.victronenergy.BusItem">
+    <signal name="PropertiesChanged">
+      <arg type="a{sv}" name="properties" />
+    </signal>
+    <method name="SetValue">
+      <arg direction="in"  type="v" name="value" />
+      <arg direction="out" type="i" />
+    </method>
+    <method name="GetText">
+      <arg direction="out" type="s" />
+    </method>
+    <method name="GetValue">
+      <arg direction="out" type="v" />
+    </method>
+	</interface>` + introspect.IntrospectDataString + `</node> `
+
 // dbusPaths lists all D-Bus object paths to register.
 var dbusPaths = []dbus.ObjectPath{
 	// Static device info
 	"/Connected", "/CustomName", "/DeviceInstance", "/DeviceType",
 	"/ErrorCode", "/FirmwareVersion", "/Mgmt/Connection", "/Mgmt/ProcessName",
-	"/Mgmt/ProcessVersion", "/ProductName", "/ProductId", "/Role", "/Position", "/Serial",
+	"/Mgmt/ProcessVersion", "/ProductName", "/ProductId", "/RefreshTime", "/Role", "/Position", "/Serial",
 	// Dynamic measurement paths
 	"/Ac/L1/Power", "/Ac/L2/Power", "/Ac/L3/Power",
 	"/Ac/L1/Voltage", "/Ac/L2/Voltage", "/Ac/L3/Voltage",
@@ -73,6 +91,9 @@ func (a *App) RegisterDBusPaths() error {
 		log.Debug("Exporting D-Bus path: ", p)
 		if err := a.dbusConn.Export(objectpath(p), p, "com.victronenergy.BusItem"); err != nil {
 			return fmt.Errorf("failed to export path %s: %w", p, err)
+		}
+		if err := a.dbusConn.Export(introspect.Introspectable(introXMLPath), p, "org.freedesktop.DBus.Introspectable"); err != nil {
+			return fmt.Errorf("failed to export introspection for path %s: %w", p, err)
 		}
 	}
 
