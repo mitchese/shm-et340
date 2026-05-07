@@ -21,7 +21,7 @@ esac
 
 # Fetch latest release tag from GitHub API
 echo "Fetching latest release..."
-LATEST=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+LATEST=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -n 1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 
 if [ -z "$LATEST" ]; then
     echo "ERROR: Could not determine latest release. Check your internet connection."
